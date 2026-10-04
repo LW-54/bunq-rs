@@ -153,6 +153,25 @@ retry automatically. If the outcome is uncertain, list payments and inspect
 the account before taking recovery action, since replaying a payment can
 duplicate the transfer.
 
+For IBAN-heavy workflows, parse and validate the IBAN once and reuse it:
+
+```rust,no_run
+# fn example() -> bunq_api::Result<()> {
+let iban = bunq_api::Iban::parse("NL91 ABNA 0417 1643 00")?;
+let payment = bunq_api::PaymentRequest::new_iban(
+	"10.00",
+	"EUR",
+	&iban,
+	Some("Invoice 123".to_owned()),
+)?;
+# let _ = payment;
+# Ok(())
+# }
+```
+
+IBAN parsing normalizes spaces and case and validates the MOD-97 checksum
+before the value is serialized into a request.
+
 To request money instead of sending it, use `RequestInquiryRequest` and
 `Client::create_request_inquiry`. This creates a bunq request for a
 counterparty to approve; it is a different operation from an outgoing

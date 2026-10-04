@@ -16,7 +16,7 @@ be treated as a complete general-purpose bunq SDK.
 | Sandbox | Disposable person/company users |
 | Users | Current user lookup |
 | Accounts | Bank, external, and savings account list/detail reads |
-| Payments | List/detail, bounded history collection, single creation, payment batches |
+| Payments | List/detail, bounded history collection, single creation, payment batches, typed IBAN counterparties |
 | Requests | Request-inquiry creation, list/detail |
 | Pagination | Payment, request-inquiry, and payment-batch pagination metadata |
 | Security | RSA-SHA256 signing, response signatures, request correlation |

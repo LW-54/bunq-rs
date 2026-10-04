@@ -329,6 +329,85 @@ pub enum CounterpartyAlias {
     Iban,
 }
 
+/// A normalized and checksum-validated International Bank Account Number.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Iban(String);
+
+impl Iban {
+    /// Parses and normalizes an IBAN by removing spaces and uppercasing letters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the IBAN has an invalid length, characters, country prefix, or MOD-97 checksum.
+    pub fn parse(value: impl AsRef<str>) -> crate::Result<Self> {
+        let normalized: String = value
+            .as_ref()
+            .chars()
+            .filter(|character| !character.is_ascii_whitespace())
+            .flat_map(char::to_uppercase)
+            .collect();
+        if !(15..=34).contains(&normalized.len())
+            || !normalized
+                .chars()
+                .take(2)
+                .all(|character| character.is_ascii_alphabetic())
+            || !normalized
+                .chars()
+                .skip(2)
+                .all(|character| character.is_ascii_alphanumeric())
+        {
+            return Err(crate::Error::InvalidConfiguration(
+                "invalid IBAN format".to_owned(),
+            ));
+        }
+        let characters: Vec<char> = normalized.chars().collect();
+        let mut remainder = 0_u32;
+        for character in characters.iter().skip(4).chain(characters.iter().take(4)) {
+            let value = character.to_digit(36).ok_or_else(|| {
+                crate::Error::InvalidConfiguration("invalid IBAN format".to_owned())
+            })?;
+            let digits = value.to_string();
+            for digit in digits.chars() {
+                let digit = digit.to_digit(10).unwrap_or(0);
+                remainder = remainder
+                    .checked_mul(10)
+                    .and_then(|value| value.checked_add(digit))
+                    .ok_or_else(|| {
+                        crate::Error::InvalidConfiguration("invalid IBAN value".to_owned())
+                    })?
+                    % 97;
+            }
+        }
+        if remainder != 1 {
+            return Err(crate::Error::InvalidConfiguration(
+                "invalid IBAN checksum".to_owned(),
+            ));
+        }
+        Ok(Self(normalized))
+    }
+
+    /// Returns the normalized IBAN string used on the wire.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Iban {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Serialize for Iban {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
 /// A payment counterparty identified by an email, phone number, or IBAN.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct Counterparty {
@@ -422,6 +501,26 @@ impl PaymentRequest {
         self.counterparty_alias.name = Some(name.into());
         self
     }
+
+    /// Creates a payment request addressed to a validated IBAN.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the amount or currency is invalid.
+    pub fn new_iban(
+        amount_value: impl Into<String>,
+        currency: impl Into<String>,
+        iban: &Iban,
+        description: Option<String>,
+    ) -> crate::Result<Self> {
+        Self::new(
+            amount_value,
+            currency,
+            CounterpartyAlias::Iban,
+            iban.as_str(),
+            description,
+        )
+    }
 }
 
 /// A validated request for money from a counterparty.
@@ -462,6 +561,26 @@ impl RequestInquiryRequest {
     pub const fn allow_bunqme(mut self, allow: bool) -> Self {
         self.allow_bunqme = allow;
         self
+    }
+
+    /// Creates a money request addressed to a validated IBAN.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the amount or currency is invalid.
+    pub fn new_iban(
+        amount_value: impl Into<String>,
+        currency: impl Into<String>,
+        iban: &Iban,
+        description: Option<String>,
+    ) -> crate::Result<Self> {
+        Self::new(
+            amount_value,
+            currency,
+            CounterpartyAlias::Iban,
+            iban.as_str(),
+            description,
+        )
     }
 }
 
@@ -658,7 +777,7 @@ impl<'de> Deserialize<'de> for MonetaryAccountBank {
 #[cfg(test)]
 mod tests {
     use super::{
-        CounterpartyAlias, CreatedPayment, CreatedRequestInquiry, MonetaryAccountBank,
+        CounterpartyAlias, CreatedPayment, CreatedRequestInquiry, Iban, MonetaryAccountBank,
         MonetaryAccountExternal, MonetaryAccountSavings, PaginatedResponse, Payment, PaymentBatch,
         PaymentBatchRequest, PaymentRequest, RequestInquiry, RequestInquiryRequest, User,
     };
@@ -740,6 +859,21 @@ mod tests {
         let json = serde_json::to_value(request).expect("payment JSON");
         assert_eq!(json["amount"]["value"], "0.10");
         assert_eq!(json["counterparty_alias"]["type"], "EMAIL");
+    }
+
+    #[test]
+    fn parses_and_normalizes_valid_iban() {
+        let iban = Iban::parse("gb82 west 1234 5698 7654 32").expect("IBAN");
+        assert_eq!(iban.as_str(), "GB82WEST12345698765432");
+        let request = PaymentRequest::new_iban("1.00", "EUR", &iban, None).expect("payment");
+        assert_eq!(request.counterparty_alias.kind, CounterpartyAlias::Iban);
+        assert_eq!(request.counterparty_alias.value, "GB82WEST12345698765432");
+    }
+
+    #[test]
+    fn rejects_invalid_iban_checksum() {
+        assert!(Iban::parse("GB82WEST12345698765431").is_err());
+        assert!(Iban::parse("not-an-iban").is_err());
     }
 
     #[test]
