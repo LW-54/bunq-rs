@@ -1,10 +1,11 @@
 use serde::de::DeserializeOwned;
 
 use crate::{
-    CreatedPayment, CreatedRequestInquiry, Error, InstallationContext, Method, MonetaryAccountBank,
-    MonetaryAccountExternal, MonetaryAccountSavings, PaginatedResponse, Payment, PaymentBatch,
-    PaymentBatchRequest, PaymentRequest, RequestInquiry, RequestInquiryRequest, Response,
-    ResponseEnvelope, Result, Transport, User,
+    CreatedMonetaryAccount, CreatedPayment, CreatedRequestInquiry, Error, InstallationContext,
+    Method, MonetaryAccountBank, MonetaryAccountBankRequest, MonetaryAccountExternal,
+    MonetaryAccountSavings, MonetaryAccountSavingsRequest, PaginatedResponse, Payment,
+    PaymentBatch, PaymentBatchRequest, PaymentRequest, RequestInquiry, RequestInquiryRequest,
+    Response, ResponseEnvelope, Result, Transport, User,
 };
 
 /// An authenticated bunq API client backed by a persisted installation.
@@ -149,6 +150,29 @@ impl Client {
         .await
     }
 
+    /// Creates a bank account for a user.
+    ///
+    /// This operation is intentionally not retried because it creates a financial account.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for request serialization, transport, signature, API, or response
+    /// decoding failures.
+    pub async fn create_monetary_account_bank(
+        &self,
+        user_id: u64,
+        request: &MonetaryAccountBankRequest,
+    ) -> Result<ResponseEnvelope<CreatedMonetaryAccount>> {
+        let body = serde_json::to_vec(request).map_err(Error::Serialization)?;
+        self.request_json(
+            Method::POST,
+            &format!("user/{user_id}/monetary-account-bank"),
+            Some(body),
+            true,
+        )
+        .await
+    }
+
     /// Lists external accounts linked to a user.
     ///
     /// # Errors
@@ -219,6 +243,29 @@ impl Client {
             &format!("user/{user_id}/monetary-account-savings/{account_id}"),
             None,
             false,
+        )
+        .await
+    }
+
+    /// Creates a savings account for a user.
+    ///
+    /// This operation is intentionally not retried because it creates a financial account.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for request serialization, transport, signature, API, or response
+    /// decoding failures.
+    pub async fn create_monetary_account_savings(
+        &self,
+        user_id: u64,
+        request: &MonetaryAccountSavingsRequest,
+    ) -> Result<ResponseEnvelope<CreatedMonetaryAccount>> {
+        let body = serde_json::to_vec(request).map_err(Error::Serialization)?;
+        self.request_json(
+            Method::POST,
+            &format!("user/{user_id}/monetary-account-savings"),
+            Some(body),
+            true,
         )
         .await
     }

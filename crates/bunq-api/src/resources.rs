@@ -111,11 +111,18 @@ impl<'de> Deserialize<'de> for Money {
         D: Deserializer<'de>,
     {
         let balance = Balance::deserialize(deserializer)?;
-        let minor_units = parse_minor_units_signed(&balance.value, 2).map_err(D::Error::custom)?;
+        let scale = balance
+            .value
+            .split_once('.')
+            .map_or(0, |(_, fraction)| fraction.len());
+        let scale =
+            u8::try_from(scale).map_err(|_| D::Error::custom("money scale is too large"))?;
+        let minor_units =
+            parse_minor_units_signed(&balance.value, scale).map_err(D::Error::custom)?;
         Ok(Self {
             currency: balance.currency,
             minor_units,
-            scale: 2,
+            scale,
         })
     }
 }
@@ -227,6 +234,100 @@ pub struct MonetaryAccountSavings {
     pub description: Option<String>,
     pub status: Option<String>,
     pub additional: HashMap<String, Value>,
+}
+
+/// Fields accepted when creating a bank monetary account.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MonetaryAccountBankRequest {
+    pub currency: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily_limit: Option<Money>,
+}
+
+impl MonetaryAccountBankRequest {
+    /// Creates a bank account request for an ISO 4217 currency.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `currency` is not a three-letter uppercase code.
+    pub fn new(currency: impl Into<String>) -> crate::Result<Self> {
+        let currency = currency.into();
+        validate_currency(&currency)?;
+        Ok(Self {
+            currency,
+            description: None,
+            display_name: None,
+            daily_limit: None,
+        })
+    }
+}
+
+/// Fields accepted when creating a savings monetary account.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MonetaryAccountSavingsRequest {
+    pub currency: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily_limit: Option<Money>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub savings_goal: Option<Money>,
+}
+
+impl MonetaryAccountSavingsRequest {
+    /// Creates a savings account request for an ISO 4217 currency.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `currency` is not a three-letter uppercase code.
+    pub fn new(currency: impl Into<String>) -> crate::Result<Self> {
+        let currency = currency.into();
+        validate_currency(&currency)?;
+        Ok(Self {
+            currency,
+            description: None,
+            daily_limit: None,
+            savings_goal: None,
+        })
+    }
+}
+
+/// The ID acknowledgment returned after creating a monetary account.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatedMonetaryAccount {
+    pub id: u64,
+}
+
+impl<'de> Deserialize<'de> for CreatedMonetaryAccount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        if let Some(id) = value
+            .get("Id")
+            .and_then(|entry| entry.get("id"))
+            .and_then(Value::as_u64)
+        {
+            return Ok(Self { id });
+        }
+        for wrapper in ["MonetaryAccountBank", "MonetaryAccountSavings"] {
+            if let Some(id) = value
+                .get(wrapper)
+                .and_then(|entry| entry.get("id"))
+                .and_then(Value::as_u64)
+            {
+                return Ok(Self { id });
+            }
+        }
+        Err(D::Error::custom(
+            "account creation response is missing Id or account",
+        ))
+    }
 }
 
 macro_rules! impl_monetary_account_deserialize {
@@ -821,6 +922,35 @@ mod tests {
     }
 
     #[test]
+    fn serializes_account_creation_requests() {
+        let mut bank = super::MonetaryAccountBankRequest::new("EUR").expect("currency");
+        bank.description = Some("Primary account".to_owned());
+        bank.display_name = Some("Test User".to_owned());
+        bank.daily_limit = Some(super::Money::from_decimal("EUR", "100.00", 2).expect("limit"));
+        assert_eq!(
+            serde_json::to_value(bank).expect("bank request"),
+            serde_json::json!({
+                "currency": "EUR",
+                "description": "Primary account",
+                "display_name": "Test User",
+                "daily_limit": {"currency": "EUR", "value": "100.00"}
+            })
+        );
+
+        let mut savings = super::MonetaryAccountSavingsRequest::new("EUR").expect("currency");
+        savings.description = Some("Emergency savings".to_owned());
+        savings.savings_goal = Some(super::Money::from_decimal("EUR", "500.00", 2).expect("goal"));
+        assert_eq!(
+            serde_json::to_value(savings).expect("savings request"),
+            serde_json::json!({
+                "currency": "EUR",
+                "description": "Emergency savings",
+                "savings_goal": {"currency": "EUR", "value": "500.00"}
+            })
+        );
+    }
+
+    #[test]
     fn decodes_paginated_payments_and_optional_fields() {
         let page = serde_json::from_slice::<PaginatedResponse<Payment>>(
             br#"{
@@ -910,6 +1040,18 @@ mod tests {
         assert_eq!(
             serde_json::to_value(money).expect("money JSON")["value"],
             "-12.34"
+        );
+    }
+
+    #[test]
+    fn preserves_response_money_scale() {
+        let money = serde_json::from_str::<super::Money>(r#"{"currency":"KWD","value":"1.234"}"#)
+            .expect("scaled money");
+        assert_eq!(money.minor_units, 1234);
+        assert_eq!(money.scale, 3);
+        assert_eq!(
+            serde_json::to_value(money).expect("money JSON")["value"],
+            "1.234"
         );
     }
 

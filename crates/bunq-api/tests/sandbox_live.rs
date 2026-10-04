@@ -47,6 +47,43 @@ async fn sandbox_person_can_create_an_authenticated_context() {
         .await
         .expect("account detail lookup should succeed");
     assert_eq!(account.response[0].id, account_id);
+    let mut bank_request =
+        bunq_api::MonetaryAccountBankRequest::new("EUR").expect("bank currency should validate");
+    bank_request.description = Some("bunq-api sandbox bank creation".to_owned());
+    bank_request.display_name = Some("bunq-api sandbox test".to_owned());
+    let created_bank = client
+        .create_monetary_account_bank(session.user_id(), &bank_request)
+        .await
+        .expect("sandbox bank account creation should succeed");
+    assert_eq!(created_bank.response.len(), 1);
+    assert!(created_bank.response[0].id > 0);
+    let created_bank_detail = client
+        .get_monetary_account_bank(session.user_id(), created_bank.response[0].id)
+        .await
+        .expect("created bank account lookup should succeed");
+    assert_eq!(
+        created_bank_detail.response[0].id,
+        created_bank.response[0].id
+    );
+
+    let mut savings_request = bunq_api::MonetaryAccountSavingsRequest::new("EUR")
+        .expect("savings currency should validate");
+    savings_request.description = Some("bunq-api sandbox savings creation".to_owned());
+    let created_savings = client
+        .create_monetary_account_savings(session.user_id(), &savings_request)
+        .await
+        .expect("sandbox savings account creation should succeed");
+    assert_eq!(created_savings.response.len(), 1);
+    assert!(created_savings.response[0].id > 0);
+    let created_savings_detail = client
+        .get_monetary_account_savings(session.user_id(), created_savings.response[0].id)
+        .await
+        .expect("created savings account lookup should succeed");
+    assert_eq!(
+        created_savings_detail.response[0].id,
+        created_savings.response[0].id
+    );
+
     let funding_request = bunq_api::RequestInquiryRequest::new(
         "1.00",
         "EUR",

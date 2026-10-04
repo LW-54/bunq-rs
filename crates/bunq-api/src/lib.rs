@@ -15,10 +15,11 @@ pub use envelope::{ApiError, ErrorEnvelope, ResponseEnvelope, decode_error, deco
 pub use error::{Error, Result};
 pub use reqwest::Method;
 pub use resources::{
-    Balance, Counterparty, CounterpartyAlias, CreatedPayment, CreatedRequestInquiry, Iban,
-    MonetaryAccountBank, MonetaryAccountExternal, MonetaryAccountSavings, Money, PaginatedResponse,
-    Pagination, Payment, PaymentBatch, PaymentBatchRequest, PaymentRequest, RequestInquiry,
-    RequestInquiryRequest, User, UserCompany, UserPerson,
+    Balance, Counterparty, CounterpartyAlias, CreatedMonetaryAccount, CreatedPayment,
+    CreatedRequestInquiry, Iban, MonetaryAccountBank, MonetaryAccountBankRequest,
+    MonetaryAccountExternal, MonetaryAccountSavings, MonetaryAccountSavingsRequest, Money,
+    PaginatedResponse, Pagination, Payment, PaymentBatch, PaymentBatchRequest, PaymentRequest,
+    RequestInquiry, RequestInquiryRequest, User, UserCompany, UserPerson,
 };
 pub use sandbox::{SandboxUserKind, create_sandbox_user};
 pub use signing::{PrivateKey, PublicKey, generate_key_pair, sign, verify};
